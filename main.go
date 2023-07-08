@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"os"
 	"time"
 
 	"github.com/miekg/dns"
@@ -15,10 +16,26 @@ var (
 	server    = flag.String("server", "", "The DNS server to use")
 	qType     = flag.String("type", "A", "The query type (A, MX, NS, etc.)")
 	recursion = flag.Bool("recursion", true, "Enable or disable recursion")
+	suite     = flag.String("suite", "", "Specify tls 1.3 cipher suite")
 )
+
+var suites map[string]uint16
+
+// TLS 1.3 cipher suites.
+func initSuite() {
+	suites = make(map[string]uint16)
+
+	suites["TLS_AES_128_GCM_SHA256"] = 0x1301
+	suites["TLS_AES_256_GCM_SHA384"] = 0x1302
+	suites["TLS_CHACHA20_POLY1305_SHA256"] = 0x1303
+	suites["TLS_AES_128_CCM_8_SHA256"] = 0x1305
+	suites["TLS_AES_128_CCM_SHA256"] = 0x1304
+}
 
 func main() {
 	flag.Parse()
+
+	initSuite()
 
 	if *domain == "" {
 		fmt.Println("Please provide a domain to query.")
@@ -35,9 +52,33 @@ func main() {
 		*server = addrs[0]
 	}
 
-	config := &tls.Config{
+	var config *tls.Config
+
+	config = &tls.Config{
 		ServerName:         *server,
 		InsecureSkipVerify: true,
+	}
+
+	if *suite != "" {
+		s, ok := suites[*suite]
+		if !ok {
+			fmt.Println("Invalid cipher suites. please choose one of the list:")
+			fmt.Println("	- TLS_AES_128_GCM_SHA256")
+			fmt.Println("	- TLS_AES_256_GCM_SHA384")
+			fmt.Println("	- TLS_CHACHA20_POLY1305_SHA256")
+			fmt.Println("	- TLS_AES_128_CCM_8_SHA256")
+			fmt.Println("	- TLS_AES_128_CCM_SHA256")
+			os.Exit(0)
+		}
+
+		config = &tls.Config{
+			ServerName:               *server,
+			InsecureSkipVerify:       true,
+			PreferServerCipherSuites: true,
+			CipherSuites:             []uint16{s},
+			MinVersion:               tls.VersionTLS13,
+			MaxVersion:               tls.VersionTLS13,
+		}
 	}
 	dialer := &net.Dialer{
 		Timeout: time.Second * 10,
